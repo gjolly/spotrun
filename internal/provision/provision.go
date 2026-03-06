@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -24,11 +25,12 @@ import (
 )
 
 type Instance struct {
-	ID         string
-	PublicIP   string
-	Region     string
-	PrivateKey ssh.Signer
-	SSHUser    string
+	ID                string
+	PublicIP          string
+	Region            string
+	PrivateKey        ssh.Signer
+	SSHUser           string
+	SSHPrivateKeyPEM  string // PEM-encoded private key for manual SSH access
 }
 
 func Launch(ctx context.Context, cfg *config.Config, candidate *spotfinder.Candidate, registryUser, registryToken string) (*Instance, func(), error) {
@@ -39,7 +41,7 @@ func Launch(ctx context.Context, cfg *config.Config, candidate *spotfinder.Candi
 	client := ec2.NewFromConfig(awsCfg)
 
 	// Generate SSH key pair
-	signer, pubKeyLine, err := generateSSHKeyPair()
+	signer, pubKeyLine, privKeyPEM, err := generateSSHKeyPair()
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating SSH key: %w", err)
 	}
@@ -127,15 +129,20 @@ func Launch(ctx context.Context, cfg *config.Config, candidate *spotfinder.Candi
 		} else {
 			fmt.Printf("Instance %s terminated.\n", instanceID)
 		}
-		// Wait for SG to detach
-		time.Sleep(15 * time.Second)
-		_, err = client.DeleteSecurityGroup(cleanupCtx, &ec2.DeleteSecurityGroupInput{
-			GroupId: aws.String(sgID),
-		})
+		// Retry SG deletion — the instance takes variable time to fully detach.
+		for range 10 {
+			time.Sleep(15 * time.Second)
+			_, err = client.DeleteSecurityGroup(cleanupCtx, &ec2.DeleteSecurityGroupInput{
+				GroupId: aws.String(sgID),
+			})
+			if err == nil {
+				fmt.Printf("Security group %s deleted.\n", sgID)
+				break
+			}
+			fmt.Printf("Waiting for security group %s to detach...\n", sgID)
+		}
 		if err != nil {
 			fmt.Printf("warning: deleting security group %s: %v\n", sgID, err)
-		} else {
-			fmt.Printf("Security group %s deleted.\n", sgID)
 		}
 	}
 
@@ -147,29 +154,35 @@ func Launch(ctx context.Context, cfg *config.Config, candidate *spotfinder.Candi
 	}
 
 	return &Instance{
-		ID:         instanceID,
-		PublicIP:   publicIP,
-		Region:     candidate.Region,
-		PrivateKey: signer,
-		SSHUser:    "ubuntu",
+		ID:               instanceID,
+		PublicIP:         publicIP,
+		Region:           candidate.Region,
+		PrivateKey:       signer,
+		SSHUser:          "ubuntu",
+		SSHPrivateKeyPEM: privKeyPEM,
 	}, cleanup, nil
 }
 
-func generateSSHKeyPair() (ssh.Signer, string, error) {
+func generateSSHKeyPair() (ssh.Signer, string, string, error) {
 	_, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	signer, err := ssh.NewSignerFromKey(privKey)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	pubKey := signer.PublicKey()
 	pubKeyLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pubKey)))
 
-	return signer, pubKeyLine, nil
+	pemBlock, err := ssh.MarshalPrivateKey(privKey, "")
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	return signer, pubKeyLine, string(pem.EncodeToMemory(pemBlock)), nil
 }
 
 func findAMI(ctx context.Context, client *ec2.Client, arch string) (string, error) {

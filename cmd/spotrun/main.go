@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 
 	"github.com/gjolly/spotrun/internal/config"
 	"github.com/gjolly/spotrun/internal/monitor"
@@ -21,10 +24,22 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 3 || os.Args[1] != "run" {
-		return fmt.Errorf("usage: spotrun run <config.yaml>")
+		return fmt.Errorf("usage: spotrun run [--debug-ssh] <config.yaml>")
 	}
 
-	configPath := os.Args[2]
+	var debugSSH bool
+	var configPath string
+	for _, arg := range os.Args[2:] {
+		switch arg {
+		case "--debug-ssh":
+			debugSSH = true
+		default:
+			configPath = arg
+		}
+	}
+	if configPath == "" {
+		return fmt.Errorf("usage: spotrun run [--debug-ssh] <config.yaml>")
+	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -34,7 +49,8 @@ func run() error {
 	registryUser := os.Getenv("SPOTRUN_REGISTRY_USER")
 	registryToken := os.Getenv("SPOTRUN_REGISTRY_TOKEN")
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	fmt.Printf("Searching %d regions for cheapest spot instance...\n", len(cfg.Regions))
 
@@ -74,13 +90,39 @@ func run() error {
 	if instance == nil {
 		return fmt.Errorf("no spot capacity available across all %d candidate(s)", len(candidates))
 	}
-	defer cleanup()
+
+	// Wrap cleanup in sync.Once so it's safe to call from both defer and the signal goroutine.
+	var once sync.Once
+	safeCleanup := func() { once.Do(cleanup) }
+	defer safeCleanup()
+
+	// Belt-and-suspenders: if anything blocks after this point and a signal arrives,
+	// run cleanup directly from the signal goroutine rather than waiting for defer.
+	go func() {
+		<-ctx.Done()
+		fmt.Println("\nInterrupted — cleaning up instance...")
+		safeCleanup()
+	}()
 
 	fmt.Printf("Instance %s ready at %s\n\n", instance.ID, instance.PublicIP)
+
+	if debugSSH {
+		fmt.Println("--- SSH ACCESS ---")
+		fmt.Print(instance.SSHPrivateKeyPEM)
+		fmt.Printf("# Save the key above to a file, then:\n")
+		fmt.Printf("# chmod 600 /tmp/spotrun.pem\n")
+		fmt.Printf("# ssh -i /tmp/spotrun.pem %s@%s\n", instance.SSHUser, instance.PublicIP)
+		fmt.Println("------------------")
+		fmt.Println()
+	}
 	fmt.Println("Streaming workload logs:")
 	fmt.Println(strings.Repeat("-", 60))
 
 	if err := monitor.Run(ctx, cfg, instance); err != nil {
+		if context.Cause(ctx) != nil {
+			// User interrupted — cleanup already running, exit cleanly.
+			return nil
+		}
 		fmt.Fprintf(os.Stderr, "workload error: %v\n", err)
 		fmt.Printf("\nResults saved to %s\n", cfg.Output.LocalDir)
 		return err

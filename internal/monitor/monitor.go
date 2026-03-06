@@ -71,7 +71,15 @@ func Run(ctx context.Context, cfg *config.Config, instance *provision.Instance) 
 		}
 	}()
 
-	exitCode := <-done
+	var exitCode int
+	select {
+	case exitCode = <-done:
+	case <-ctx.Done():
+		_ = logSession.Signal(ssh.SIGTERM)
+		logSession.Close()
+		return ctx.Err()
+	}
+
 	_ = logSession.Signal(ssh.SIGTERM)
 	logSession.Close()
 
