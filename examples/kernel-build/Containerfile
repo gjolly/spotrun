@@ -37,6 +37,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     flex \
     gcc \
     libelf-dev \
+    kmod \
     libssl-dev \
     make \
     python3 \

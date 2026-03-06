@@ -22,4 +22,4 @@ coverage.html
 Thumbs.db
 
 # Output artifacts
-/output/
+*.tar.gz
