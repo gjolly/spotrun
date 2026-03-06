@@ -19,6 +19,3 @@ workload:
 
 spot:
   max_price_usd_per_hour: 2.00   # optional; omit for no limit
-
-output:
-  local_dir: ./output

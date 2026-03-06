@@ -32,7 +32,7 @@ spotrun will:
 1. Search all configured regions in parallel for the cheapest matching spot instance
 2. Launch the instance with a temporary SSH key and security group
 3. Pull and run your container, streaming logs to the terminal
-4. Download everything written to `workload.output_dir` into `output.local_dir`
+4. Download everything written to `workload.output_dir` as a tarball named `spotrun-output-<timestamp>.tar.gz` in the current directory
 5. Terminate the instance and delete the security group
 
 ## Configuration
@@ -61,9 +61,14 @@ workload:
 
 spot:
   max_price_usd_per_hour: 2.00  # optional price cap; omit for no limit
+```
 
-output:
-  local_dir: ./output     # local directory where artifacts are saved (default: ./output)
+### Output
+
+After the run, artifacts are saved as `spotrun-output-<unix_timestamp>.tar.gz` in the current working directory. Extract with:
+
+```bash
+tar xzf spotrun-output-*.tar.gz
 ```
 
 ### Storage types
@@ -103,7 +108,7 @@ docker build -f examples/kernel-build/Containerfile -t my-kernel-build examples/
 spotrun run examples/kernel-build/spotrun.yaml
 ```
 
-Output artifacts (`vmlinuz`, `System.map`, `.config`) are written to `/output` inside the container and downloaded to `./output` locally.
+Output artifacts (`vmlinuz`, `System.map`, `.config`) are written to `/output` inside the container and downloaded as `spotrun-output-<timestamp>.tar.gz` in the current directory.
 
 ## What happens on spot interruption
 

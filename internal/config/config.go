@@ -29,16 +29,11 @@ type SpotConfig struct {
 	MaxPriceUSDPerHour float64 `yaml:"max_price_usd_per_hour"`
 }
 
-type OutputConfig struct {
-	LocalDir string `yaml:"local_dir"`
-}
-
 type Config struct {
 	Regions      []string     `yaml:"regions"`
 	Requirements Requirements `yaml:"requirements"`
 	Workload     Workload     `yaml:"workload"`
 	Spot         SpotConfig   `yaml:"spot"`
-	Output       OutputConfig `yaml:"output"`
 }
 
 func Load(path string) (*Config, error) {
@@ -58,9 +53,6 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Requirements.Storage.Type == "" {
 		cfg.Requirements.Storage.Type = "any"
-	}
-	if cfg.Output.LocalDir == "" {
-		cfg.Output.LocalDir = "./output"
 	}
 	if cfg.Workload.OutputDir == "" {
 		cfg.Workload.OutputDir = "/output"

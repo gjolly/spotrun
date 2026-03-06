@@ -3,17 +3,13 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gjolly/spotrun/internal/config"
 	"github.com/gjolly/spotrun/internal/provision"
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -85,7 +81,7 @@ func Run(ctx context.Context, cfg *config.Config, instance *provision.Instance) 
 
 	// Download artifacts regardless of exit code
 	fmt.Println("\nDownloading artifacts...")
-	if err := downloadArtifacts(sshClient, cfg); err != nil {
+	if err := downloadArtifacts(sshClient); err != nil {
 		fmt.Printf("warning: downloading artifacts: %v\n", err)
 	}
 
@@ -125,68 +121,26 @@ func connectSSH(ctx context.Context, instance *provision.Instance) (*ssh.Client,
 	}
 }
 
-func downloadArtifacts(sshClient *ssh.Client, cfg *config.Config) error {
-	sftpClient, err := sftp.NewClient(sshClient)
+func downloadArtifacts(sshClient *ssh.Client) error {
+	sess, err := sshClient.NewSession()
 	if err != nil {
-		return fmt.Errorf("creating SFTP client: %w", err)
+		return fmt.Errorf("creating SSH session: %w", err)
 	}
-	defer sftpClient.Close()
+	defer sess.Close()
 
-	remoteBase := "/spotrun-output"
-	localBase := cfg.Output.LocalDir
+	localPath := fmt.Sprintf("spotrun-output-%d.tar.gz", time.Now().Unix())
+	f, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("creating local tarball %s: %w", localPath, err)
+	}
+	defer f.Close()
 
-	walker := sftpClient.Walk(remoteBase)
-	for walker.Step() {
-		if err := walker.Err(); err != nil {
-			fmt.Printf("warning: walking remote path: %v\n", err)
-			continue
-		}
+	sess.Stdout = f
 
-		stat := walker.Stat()
-		remotePath := walker.Path()
-		relPath, err := filepath.Rel(remoteBase, remotePath)
-		if err != nil || relPath == "." {
-			continue
-		}
-
-		localPath := filepath.Join(localBase, relPath)
-
-		if stat.IsDir() {
-			if err := os.MkdirAll(localPath, 0o755); err != nil {
-				return fmt.Errorf("creating directory %s: %w", localPath, err)
-			}
-			continue
-		}
-
-		// Skip non-regular files
-		if stat.Mode()&fs.ModeType != 0 {
-			continue
-		}
-
-		fmt.Printf("downloading %s\n", filepath.Join(cfg.Output.LocalDir, relPath))
-
-		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-			return fmt.Errorf("creating parent dir for %s: %w", localPath, err)
-		}
-
-		remoteFile, err := sftpClient.Open(remotePath)
-		if err != nil {
-			return fmt.Errorf("opening remote file %s: %w", remotePath, err)
-		}
-
-		localFile, err := os.Create(localPath)
-		if err != nil {
-			remoteFile.Close()
-			return fmt.Errorf("creating local file %s: %w", localPath, err)
-		}
-
-		_, err = io.Copy(localFile, remoteFile)
-		remoteFile.Close()
-		localFile.Close()
-		if err != nil {
-			return fmt.Errorf("downloading %s: %w", remotePath, err)
-		}
+	if err := sess.Run("tar czf - -C /spotrun-output . 2>/dev/null"); err != nil {
+		return fmt.Errorf("remote tar: %w", err)
 	}
 
+	fmt.Printf("artifacts saved to %s\n", localPath)
 	return nil
 }

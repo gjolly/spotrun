@@ -124,10 +124,8 @@ func run() error {
 			return nil
 		}
 		fmt.Fprintf(os.Stderr, "workload error: %v\n", err)
-		fmt.Printf("\nResults saved to %s\n", cfg.Output.LocalDir)
 		return err
 	}
 
-	fmt.Printf("\nResults saved to %s\n", cfg.Output.LocalDir)
 	return nil
 }
