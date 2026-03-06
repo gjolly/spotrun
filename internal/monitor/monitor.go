@@ -81,7 +81,7 @@ func Run(ctx context.Context, cfg *config.Config, instance *provision.Instance) 
 
 	// Download artifacts regardless of exit code
 	fmt.Println("\nDownloading artifacts...")
-	if err := downloadArtifacts(sshClient); err != nil {
+	if err := downloadArtifacts(ctx, sshClient); err != nil {
 		fmt.Printf("warning: downloading artifacts: %v\n", err)
 	}
 
@@ -121,7 +121,7 @@ func connectSSH(ctx context.Context, instance *provision.Instance) (*ssh.Client,
 	}
 }
 
-func downloadArtifacts(sshClient *ssh.Client) error {
+func downloadArtifacts(ctx context.Context, sshClient *ssh.Client) error {
 	sess, err := sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("creating SSH session: %w", err)
@@ -137,8 +137,21 @@ func downloadArtifacts(sshClient *ssh.Client) error {
 
 	sess.Stdout = f
 
-	if err := sess.Run("tar czf - -C /spotrun-output . 2>/dev/null"); err != nil {
-		return fmt.Errorf("remote tar: %w", err)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sess.Run("tar czf - -C /spotrun-output . 2>/dev/null")
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			os.Remove(localPath)
+			return fmt.Errorf("remote tar: %w", err)
+		}
+	case <-ctx.Done():
+		sess.Close()
+		os.Remove(localPath)
+		return ctx.Err()
 	}
 
 	fmt.Printf("artifacts saved to %s\n", localPath)
