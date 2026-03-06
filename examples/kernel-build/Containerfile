@@ -1,0 +1,61 @@
+# Stage 1: fetch the latest mainline kernel source from kernel.org
+FROM ubuntu:24.04 AS fetch
+
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    curl -fsSL https://www.kernel.org/releases.json -o /releases.json; \
+    python3 -c "\
+import json, sys; \
+r = json.load(open('/releases.json'))['releases']; \
+e = next(x for x in r if x['moniker'] == 'mainline'); \
+print(e['version']); \
+print(e['source'])" > /kernel-info.txt; \
+    VERSION=$(sed -n '1p' /kernel-info.txt); \
+    SOURCE=$(sed -n '2p' /kernel-info.txt); \
+    curl -fSL "$SOURCE" -o /linux.tar.gz; \
+    tar -xf /linux.tar.gz -C /; \
+    mv /linux-${VERSION} /linux; \
+    rm /linux.tar.gz /releases.json /kernel-info.txt
+
+# Copy user-provided kernel config into the source tree
+COPY config /linux/.config
+
+# Stage 2: runtime image — build dependencies + source tree
+FROM ubuntu:24.04
+
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    bc \
+    bison \
+    ca-certificates \
+    cpio \
+    dwarves \
+    flex \
+    gcc \
+    libelf-dev \
+    libssl-dev \
+    make \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=fetch /linux /linux
+
+WORKDIR /linux
+
+# Build the kernel and copy artifacts to /output.
+# Detect the boot image path by arch so the same image works on amd64 and arm64.
+CMD set -eux; \
+    make -j"$(nproc)" LOCALVERSION=""; \
+    mkdir -p /output; \
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+        x86_64)  cp arch/x86/boot/bzImage  /output/vmlinuz ;; \
+        aarch64) cp arch/arm64/boot/Image   /output/vmlinuz ;; \
+        *)        echo "Unknown arch: $ARCH"; exit 1 ;; \
+    esac; \
+    cp System.map /output/System.map; \
+    cp .config    /output/.config

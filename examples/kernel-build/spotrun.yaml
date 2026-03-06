@@ -1,0 +1,21 @@
+regions:
+  - us-east-1
+  - us-west-2
+  - eu-west-1
+
+requirements:
+  vcpus_min: 32
+  memory_gib_min: 16
+  arch: amd64
+  storage:
+    type: any
+
+workload:
+  image: ghcr.io/gjolly/kernel-builder:latest
+  output_dir: /output
+
+spot:
+  max_price_usd_per_hour: 1.00
+
+output:
+  local_dir: ./output

@@ -1,0 +1,25 @@
+# Build output
+/spotrun
+/dist/
+
+# Go
+*.test
+*.out
+coverage.html
+
+# Environment / secrets
+.env
+*.yaml.local
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output artifacts
+/output/

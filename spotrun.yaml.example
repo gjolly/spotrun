@@ -1,0 +1,24 @@
+regions:
+  - us-east-1
+  - us-west-2
+  - eu-west-1
+
+requirements:
+  vcpus_min: 32
+  memory_gib_min: 64
+  arch: amd64          # amd64 | arm64 | any
+  storage:
+    type: nvme          # nvme | ebs | any
+    size_gib: 500       # min NVMe GiB (nvme) or root vol size added to OS (ebs/any)
+
+workload:
+  image: ghcr.io/myorg/mybuild:latest
+  output_dir: /output   # path inside container; artifacts downloaded from here
+  env:
+    BUILD_JOBS: "64"
+
+spot:
+  max_price_usd_per_hour: 2.00   # optional; omit for no limit
+
+output:
+  local_dir: ./output
