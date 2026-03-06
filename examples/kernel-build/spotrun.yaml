@@ -18,13 +18,12 @@ requirements:
   arch: amd64
   storage:
     type: any
+    size_gib: 50
+
 
 workload:
   image: ghcr.io/gjolly/kernel-builder:latest
   output_dir: /output
 
 spot:
-  max_price_usd_per_hour: 1.00
-
-output:
-  local_dir: ./output
+  max_price_usd_per_hour: 0.50

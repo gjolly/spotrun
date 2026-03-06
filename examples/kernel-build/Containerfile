@@ -40,6 +40,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     libssl-dev \
     make \
     python3 \
+    xz-utils \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=fetch /linux /linux
@@ -57,5 +59,7 @@ CMD set -eux; \
         aarch64) cp arch/arm64/boot/Image   /output/vmlinuz ;; \
         *)        echo "Unknown arch: $ARCH"; exit 1 ;; \
     esac; \
+    cp vmlinux    /output/vmlinux; \
     cp System.map /output/System.map; \
-    cp .config    /output/.config
+    cp .config    /output/.config; \
+    make modules_install INSTALL_MOD_PATH=/output/modules INSTALL_MOD_STRIP=1
